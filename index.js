@@ -3,14 +3,19 @@ const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
 const path = require('path');
+const register = require('./routes/register');
 const fs = require('fs');
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
+const auth = require('./routes/auth');
+
 
 const app = express();
 app.use(cors({ origin: ['http://localhost:3000', 'https://seuapp.vercel.app'] }));
 app.use(express.json());
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/api', register);
+app.use('/api', auth);
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {

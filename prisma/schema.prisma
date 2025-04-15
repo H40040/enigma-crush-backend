@@ -1,0 +1,44 @@
+generator client {
+  provider   = "prisma-client-js"
+  engineType = "binary"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String?
+  createdAt DateTime @default(now())
+}
+
+model Admirer {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  hints     Hint[]
+  createdAt DateTime @default(now())
+}
+
+model Hint {
+  id           String        @id @default(uuid())
+  content      String
+  type         String
+  views        Int           @default(0)
+  admirerId    String
+  admirer      Admirer       @relation(fields: [admirerId], references: [id])
+  interactions Interaction[]
+  createdAt    DateTime      @default(now())
+}
+
+model Interaction {
+  id        String   @id @default(uuid())
+  question  String
+  answer    String?
+  hintId    String
+  hint      Hint     @relation(fields: [hintId], references: [id])
+  createdAt DateTime @default(now())
+}
