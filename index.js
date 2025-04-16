@@ -1,4 +1,3 @@
-
 const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
@@ -8,7 +7,8 @@ const fs = require('fs');
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 const auth = require('./routes/auth');
-
+const dashboard = require('./routes/dashboard');
+const interaction = require('./routes/interaction');
 
 const app = express();
 app.use(cors({ origin: ['http://localhost:3000', 'https://seuapp.vercel.app'] }));
@@ -16,6 +16,8 @@ app.use(express.json());
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/api', register);
 app.use('/api', auth);
+app.use('/api', dashboard);
+app.use('/api', interaction);
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -41,19 +43,43 @@ app.post('/api/admirer', async (req, res) => {
 });
 
 app.post('/api/hint', async (req, res) => {
-  const { admirerId, content, type } = req.body;
-  const hint = await prisma.hint.create({
-    data: { content, type, admirerId }
+  const { email, content, type } = req.body;
+
+  if (!email || !content || !type) {
+    return res.status(400).json({ error: 'Email, conteúdo e tipo são obrigatórios.' });
+  }
+
+  const admirer = await prisma.admirer.upsert({
+    where: { email },
+    update: {},
+    create: { email }
   });
+
+  const hint = await prisma.hint.create({
+    data: { content, type, admirerId: admirer.id }
+  });
+
   res.json({ id: hint.id });
 });
 
 app.get('/api/hint/:id', async (req, res) => {
-  const updated = await prisma.hint.update({
+  const hint = await prisma.hint.findUnique({
+    where: { id: req.params.id }
+  });
+
+  if (!hint) return res.status(404).json({ error: 'Dica não encontrada' });
+
+  await prisma.hint.update({
     where: { id: req.params.id },
     data: { views: { increment: 1 } }
   });
-  res.json({ id: updated.id, content: updated.content, type: updated.type });
+
+  res.json({
+    id: hint.id,
+    content: hint.content,
+    type: hint.type,
+    views: hint.views + 1
+  });
 });
 
 app.get('/api/hints', async (req, res) => {
