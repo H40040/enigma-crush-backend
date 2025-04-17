@@ -9,15 +9,25 @@ const prisma = new PrismaClient();
 const auth = require('./routes/auth');
 const dashboard = require('./routes/dashboard');
 const interaction = require('./routes/interaction');
+const authenticateToken = require('./middleware/authMiddleware');
 
 const app = express();
-app.use(cors({ origin: ['http://localhost:3000', 'https://seuapp.vercel.app'] }));
-app.use(express.json());
+app.use((req, res, next) => {
+  // Allow requests from http://10.0.0.109:3000
+  res.header('Access-Control-Allow-Origin', 'http://10.0.0.109:3000'); 
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE'); // Specify allowed methods
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization'); // Specify allowed headers
+  app.use(express.json());
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/api', register);
 app.use('/api', auth);
 app.use('/api', dashboard);
 app.use('/api', interaction);
+  next();
+});
+
+//app.use(cors({ origin: ['http://localhost:3000', 'https://seuapp.vercel.app'] }));
+
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -32,6 +42,11 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
+app.get('/api/protected', authenticateToken, (req, res) => {
+  res.json({ message: 'Acesso autorizado', user: req.user });
+});
+
+
 app.post('/api/admirer', async (req, res) => {
   const { email } = req.body;
   const admirer = await prisma.admirer.upsert({
@@ -45,8 +60,12 @@ app.post('/api/admirer', async (req, res) => {
 app.post('/api/hint', async (req, res) => {
   const { email, content, type } = req.body;
 
-  if (!email || !content || !type) {
-    return res.status(400).json({ error: 'Email, conteúdo e tipo são obrigatórios.' });
+  let finalType = type;
+  let finalContent = content;
+
+  // Detecta se o tipo misto é necessário
+  if (type === 'mixed' && typeof content === 'object') {
+    finalContent = JSON.stringify(content);
   }
 
   const admirer = await prisma.admirer.upsert({
@@ -56,11 +75,16 @@ app.post('/api/hint', async (req, res) => {
   });
 
   const hint = await prisma.hint.create({
-    data: { content, type, admirerId: admirer.id }
+    data: {
+      admirerId: admirer.id,
+      content: finalContent,
+      type: finalType
+    }
   });
 
   res.json({ id: hint.id });
 });
+
 
 app.get('/api/hint/:id', async (req, res) => {
   const hint = await prisma.hint.findUnique({
