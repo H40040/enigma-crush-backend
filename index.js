@@ -12,21 +12,23 @@ const interaction = require('./routes/interaction');
 const authenticateToken = require('./middleware/authMiddleware');
 
 const app = express();
-app.use((req, res, next) => {
-  // Allow requests from http://10.0.0.109:3000
-  res.header('Access-Control-Allow-Origin', 'http://10.0.0.109:3000'); 
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE'); // Specify allowed methods
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization'); // Specify allowed headers
-  app.use(express.json());
+app.get('/api/protected', authenticateToken, (req, res) => {
+  res.json({ message: 'Acesso autorizado', user: req.user });
+});
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(cors({
+  origin: 'http://localhost:3000',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
+
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/api', register);
 app.use('/api', auth);
 app.use('/api', dashboard);
 app.use('/api', interaction);
-  next();
-});
-
-//app.use(cors({ origin: ['http://localhost:3000', 'https://seuapp.vercel.app'] }));
 
 
 const storage = multer.diskStorage({
@@ -41,11 +43,6 @@ const storage = multer.diskStorage({
   }
 });
 const upload = multer({ storage });
-
-app.get('/api/protected', authenticateToken, (req, res) => {
-  res.json({ message: 'Acesso autorizado', user: req.user });
-});
-
 
 app.post('/api/admirer', async (req, res) => {
   const { email } = req.body;
