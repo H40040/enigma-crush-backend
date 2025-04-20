@@ -3,12 +3,19 @@ const express = require('express');
 const { PrismaClient } = require('@prisma/client');
 const router = express.Router();
 const prisma = new PrismaClient();
+const authenticateToken = require('../middleware/authMiddleware');
 
-router.get('/dashboard', async (req, res) => {
+// Aplicar middleware de autenticação
+router.get('/dashboard', authenticateToken, async (req, res) => {
   const { hintsFor } = req.query;
 
   if (!hintsFor) {
     return res.status(400).json({ error: 'Parâmetro hintsFor é obrigatório.' });
+  }
+
+  // Verificar se o usuário tem permissão para acessar essas dicas
+  if (req.user.email !== hintsFor && !req.user.isAdmin) {
+    return res.status(403).json({ error: 'Acesso negado' });
   }
 
   try {
@@ -18,12 +25,13 @@ router.get('/dashboard', async (req, res) => {
     const hints = await prisma.hint.findMany({
       where: { admirerId: admirer.id },
       include: { interactions: true },
+      orderBy: { createdAt: 'desc' } // Ordenar do mais recente para o mais antigo
     });
 
     res.json(hints);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Erro ao buscar dados do painel.' });
+    console.error('Erro no dashboard:', err);
+    res.status(500).json({ error: 'Erro interno ao buscar dados do painel.' });
   }
 });
 

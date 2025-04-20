@@ -6,8 +6,12 @@ const jwt = require('jsonwebtoken');
 const router = express.Router();
 const prisma = new PrismaClient();
 
-const JWT_SECRET = process.env.JWT_SECRET || 'default_jwt_secret';
-const TOKEN_EXPIRATION = '1h'; // tempo de expiração da sessão
+// Remover o valor padrão hardcoded para maior segurança
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  console.error('AVISO: JWT_SECRET não configurado. Use uma variável de ambiente segura.');
+}
+const TOKEN_EXPIRATION = process.env.TOKEN_EXPIRATION || '1h'; // tempo de expiração da sessão
 
 function authenticateToken(req, res, next) {
   const authHeader = req.headers['authorization'];
@@ -24,22 +28,28 @@ function authenticateToken(req, res, next) {
 router.post('/verify-user', async (req, res) => {
   const { email, password } = req.body;
 
-  const user = await prisma.user.findUnique({ where: { email } });
-  if (!user) return res.status(401).json({ error: 'Usuário não encontrado' });
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email e senha são obrigatórios' });
+  }
 
-  const isValid = await bcrypt.compare(password, user.password);
-  if (!isValid) return res.status(401).json({ error: 'Senha incorreta' });
+  try {
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user) return res.status(401).json({ error: 'Usuário não encontrado' });
 
-  const token = jwt.sign({ id: user.id, name: user.name, email: user.email }, JWT_SECRET, { expiresIn: TOKEN_EXPIRATION });
+    const isValid = await bcrypt.compare(password, user.password);
+    if (!isValid) return res.status(401).json({ error: 'Senha incorreta' });
 
-  res.json({
-    token,
-    user: {
-      id: user.id,
-      name: user.name,
-      email: user.email
-    }
-  });
+    const token = jwt.sign(
+      { id: user.id, name: user.name, email: user.email }, 
+      JWT_SECRET, 
+      { expiresIn: TOKEN_EXPIRATION }
+    );
+
+    res.json({ id: user.id, name: user.name, token });
+  } catch (error) {
+    console.error('Erro na autenticação:', error);
+    res.status(500).json({ error: 'Erro interno no servidor' });
+  }
 });
 
 router.get('/profile', authenticateToken, async (req, res) => {

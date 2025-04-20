@@ -2,35 +2,76 @@ const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
 const path = require('path');
-const register = require('./routes/register');
 const fs = require('fs');
 const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const compression = require('compression');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const { body, validationResult } = require('express-validator');
+
+// Importação de rotas
+const register = require('./routes/register');
 const auth = require('./routes/auth');
 const dashboard = require('./routes/dashboard');
 const interaction = require('./routes/interaction');
+const hint = require('./routes/hint');
 const authenticateToken = require('./middleware/authMiddleware');
 
+// Inicialização segura do Prisma
+let prisma;
+try {
+  prisma = new PrismaClient();
+} catch (error) {
+  console.error('Erro ao inicializar o Prisma Client:', error);
+  process.exit(1);
+}
+
 const app = express();
+
+// Middlewares de segurança e performance
+app.use(helmet()); // Adiciona headers de segurança
+app.use(compression()); // Comprime as respostas
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Configuração de CORS mais segura
+const corsOptions = {
+  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Accept', 'Authorization']
+};
+app.use(cors(corsOptions));
+
+// Limitador de requisições para prevenir ataques de força bruta
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  max: 100, // limite de 100 requisições por IP
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api/', apiLimiter);
+
+// Serviço de arquivos estáticos com CORS liberado corretamente
+app.use('/uploads', (req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Cross-Origin-Resource-Policy', 'cross-origin');
+  next();
+}, express.static(path.join(__dirname, 'uploads')));
+
+// Rota protegida para teste
 app.get('/api/protected', authenticateToken, (req, res) => {
   res.json({ message: 'Acesso autorizado', user: req.user });
 });
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use(cors({
-  origin: 'http://localhost:3000',
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
 
-
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// Rotas importadas
 app.use('/api', register);
 app.use('/api', auth);
 app.use('/api', dashboard);
 app.use('/api', interaction);
+app.use('/api', hint);
 
-
+// Configuração do multer com validações
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     const dir = path.join(__dirname, 'uploads');
@@ -38,143 +79,59 @@ const storage = multer.diskStorage({
     cb(null, dir);
   },
   filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
     const ext = path.extname(file.originalname);
-    cb(null, Date.now() + ext);
+    cb(null, `${uniqueSuffix}${ext}`);
   }
 });
-const upload = multer({ storage });
 
-app.post('/api/admirer', async (req, res) => {
-  const { email } = req.body;
-  const admirer = await prisma.admirer.upsert({
-    where: { email },
-    update: {},
-    create: { email }
-  });
-  res.json({ id: admirer.id });
-});
-
-app.post('/api/hint', async (req, res) => {
-  const { email, content, type } = req.body;
-
-  let finalType = type;
-  let finalContent = content;
-
-  // Detecta se o tipo misto é necessário
-  if (type === 'mixed' && typeof content === 'object') {
-    finalContent = JSON.stringify(content);
-  }
-
-  const admirer = await prisma.admirer.upsert({
-    where: { email },
-    update: {},
-    create: { email }
-  });
-
-  const hint = await prisma.hint.create({
-    data: {
-      admirerId: admirer.id,
-      content: finalContent,
-      type: finalType
+// Configuração melhorada do multer com limites de tamanho
+const upload = multer({ 
+  storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024, // Limite de 5MB
+    files: 1 // Apenas 1 arquivo por vez
+  },
+  fileFilter: (req, file, cb) => {
+    // Verificar tipos de arquivo permitidos
+    const allowedMimes = ['image/jpeg', 'image/png', 'image/gif', 'video/mp4', 'audio/mp3'];
+    if (allowedMimes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Tipo de arquivo não suportado'), false);
     }
-  });
-
-  res.json({ id: hint.id });
+  }
 });
 
+// Movendo rotas para arquivos separados, mantendo apenas a lógica essencial aqui
 
-app.get('/api/hint/:id', async (req, res) => {
-  const hint = await prisma.hint.findUnique({
-    where: { id: req.params.id }
-  });
+// Rota de upload com autenticação
+app.post('/api/upload', authenticateToken, upload.single('media'), (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Nenhum arquivo enviado' });
+    }
+    
+    // Gerar URL com base no ambiente
+    const baseUrl = process.env.API_URL || `http://${req.headers.host}`;
+    const fileUrl = `${baseUrl}/uploads/${req.file.filename}`;
+      
+    res.json({ url: fileUrl });
+  } catch (error) {
+    console.error('Erro ao fazer upload:', error);
+    res.status(500).json({ error: 'Erro ao processar upload', details: error.message });
+  }
+});
 
-  if (!hint) return res.status(404).json({ error: 'Dica não encontrada' });
-
-  await prisma.hint.update({
-    where: { id: req.params.id },
-    data: { views: { increment: 1 } }
-  });
-
-  res.json({
-    id: hint.id,
-    content: hint.content,
-    type: hint.type,
-    views: hint.views + 1
+// Middleware global de tratamento de erros
+app.use((err, req, res, next) => {
+  console.error('Erro global:', err);
+  res.status(500).json({ 
+    error: 'Erro interno do servidor',
+    message: process.env.NODE_ENV === 'development' ? err.message : 'Algo deu errado'
   });
 });
 
-app.get('/api/hints', async (req, res) => {
-  const { email } = req.query;
-  const admirer = await prisma.admirer.findUnique({ where: { email } });
-  if (!admirer) return res.json([]);
-  const hints = await prisma.hint.findMany({
-    where: { admirerId: admirer.id },
-    include: { _count: { select: { interactions: true } } },
-    orderBy: { createdAt: 'desc' }
-  });
-  const formatted = hints.map(h => ({
-    id: h.id,
-    content: h.content,
-    type: h.type,
-    interactions: h._count.interactions,
-    views: h.views || 0
-  }));
-  res.json(formatted);
-});
-
-app.post('/api/hint/:id/question', async (req, res) => {
-  const count = await prisma.interaction.count({ where: { hintId: req.params.id } });
-  if (count >= 3) return res.status(400).json({ error: 'Limite de interações atingido' });
-  await prisma.interaction.create({
-    data: { question: req.body.question, hintId: req.params.id }
-  });
-  res.json({ status: 'Pergunta enviada' });
-});
-
-app.post('/api/hint/:id/answer', async (req, res) => {
-  const interaction = await prisma.interaction.findFirst({
-    where: { hintId: req.params.id, answer: null },
-    orderBy: { createdAt: 'asc' }
-  });
-  if (!interaction) return res.status(400).json({ error: 'Sem perguntas pendentes' });
-  await prisma.interaction.update({
-    where: { id: interaction.id },
-    data: { answer: req.body.answer }
-  });
-  res.json({ status: 'Resposta enviada' });
-});
-
-app.get('/api/hint/:id/interactions', async (req, res) => {
-  const interactions = await prisma.interaction.findMany({
-    where: { hintId: req.params.id },
-    orderBy: { createdAt: 'asc' }
-  });
-  res.json(interactions);
-});
-
-app.get('/api/admin/hints', async (req, res) => {
-  const hints = await prisma.hint.findMany({
-    include: {
-      _count: { select: { interactions: true } },
-      admirer: { select: { email: true } }
-    },
-    orderBy: { createdAt: 'desc' }
-  });
-  res.json(hints.map(h => ({
-    id: h.id, content: h.content, type: h.type, views: h.views, createdAt: h.createdAt,
-    _count: h._count, email: h.admirer.email
-  })));
-});
-
-app.post('/api/upload', upload.single('media'), (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo enviado' });
-  res.json({ url: `http://localhost:4000/uploads/${req.file.filename}` });
-});
-
-app.delete('/api/hint/:id', async (req, res) => {
-  await prisma.interaction.deleteMany({ where: { hintId: req.params.id } });
-  await prisma.hint.delete({ where: { id: req.params.id } });
-  res.json({ status: 'Dica deletada com sucesso' });
-});
-
-app.listen(4000, () => console.log('Servidor backend rodando na porta 4000'));
+// Iniciar o servidor
+const PORT = process.env.PORT || 4000;
+app.listen(PORT, () => console.log(`Servidor backend rodando na porta ${PORT}`));
