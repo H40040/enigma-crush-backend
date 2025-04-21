@@ -36,7 +36,7 @@ app.use(express.urlencoded({ extended: true }));
 
 // Configuração de CORS mais segura
 const corsOptions = {
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  origin: [process.env.FRONTEND_URL, 'http://10.0.0.109:3000'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Accept', 'Authorization']
@@ -112,9 +112,13 @@ app.post('/api/upload', authenticateToken, upload.single('media'), (req, res) =>
       return res.status(400).json({ error: 'Nenhum arquivo enviado' });
     }
     
-    // Gerar URL com base no ambiente
-    const baseUrl = process.env.API_URL || `http://${req.headers.host}`;
-    const fileUrl = `${baseUrl}/uploads/${req.file.filename}`;
+    // Gera a URL do arquivo usando o IP da máquina, nunca localhost
+    // Certifique-se de que SERVER_IP está definido corretamente no .env ou use o IP fixo da sua máquina na rede
+    const serverIp = process.env.SERVER_IP || req.hostname || req.connection.localAddress || '10.0.0.109';
+    const protocol = req.protocol;
+    // Força o IP correto se req.hostname for 'localhost'
+    const finalIp = (serverIp === 'localhost' || serverIp === '127.0.0.1') ? '10.0.0.109' : serverIp;
+    const fileUrl = `${protocol}://${finalIp}:4000/uploads/${req.file.filename}`;
       
     res.json({ url: fileUrl });
   } catch (error) {

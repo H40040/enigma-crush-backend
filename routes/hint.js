@@ -2,14 +2,21 @@ const express = require('express');
 const { PrismaClient } = require('@prisma/client');
 const { body, param, validationResult } = require('express-validator');
 const authenticateToken = require('../middleware/authMiddleware');
+const multer = require('multer');
 
 const router = express.Router();
 const prisma = new PrismaClient();
 
+// Configuração do multer para aceitar arquivos de até 10MB
+const storage = multer.memoryStorage();
+const upload = multer({ storage, limits: { fileSize: 10 * 1024 * 1024 } }); // 10MB
+
 // Criar uma nova dica
 router.post('/hint', authenticateToken, [
   body('content').notEmpty().withMessage('O conteúdo é obrigatório'),
-  body('type').isIn(['text', 'image', 'video', 'mixed']).withMessage('Tipo inválido')
+  body('type').isIn(['text', 'image', 'video', 'mixed']).withMessage('Tipo inválido'),
+  body('publicUrl').optional().isString(), // Permite string, pode ser preenchido depois
+  body('qrCodeUrl').optional().isString()  // Permite string, pode ser preenchido depois
 ], async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
@@ -42,7 +49,9 @@ router.post('/hint', authenticateToken, [
       }
     });
 
-    res.json({ id: hint.id });
+    res.json({
+      id: hint.id
+    });
   } catch (error) {
     console.error('Erro ao criar dica:', error);
     res.status(500).json({ error: 'Erro interno ao criar dica' });
@@ -74,7 +83,9 @@ router.get('/hint/:id', [
       id: hint.id,
       content: hint.content,
       type: hint.type,
-      views: hint.views + 1
+      views: hint.views + 1,
+      publicUrl: hint.publicUrl,
+      qrCodeUrl: hint.qrCodeUrl
     });
   } catch (error) {
     console.error('Erro ao buscar dica:', error);
@@ -98,7 +109,9 @@ router.get('/hints', authenticateToken, async (req, res) => {
       content: h.content,
       type: h.type,
       interactions: h._count.interaction,
-      views: h.views || 0
+      views: h.views || 0,
+      publicUrl: h.publicUrl,
+      qrCodeUrl: h.qrCodeUrl
     }));
     res.json(formatted);
   } catch (error) {
