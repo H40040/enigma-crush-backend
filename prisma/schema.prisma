@@ -1,26 +1,33 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
 generator client {
-  provider   = "prisma-client-js"
-  engineType = "binary"
+  provider = "prisma-client-js"
 }
 
 datasource db {
   provider = "sqlite"
-  url      = "file:./dev.db"
+  url      = env("DATABASE_URL")
 }
 
 model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
+  id        String    @id @default(uuid())
+  email     String    @unique
   password  String
   name      String
   birthdate DateTime
-  cpf       String   @unique
-  createdAt DateTime @default(now())
+  cpf       String    @unique
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @default(now())
+  lastLogin DateTime?
+  isAdmin   Boolean   @default(false)
+  admirers  Admirer[]
 }
 
 model Admirer {
   id        String   @id @default(uuid())
-  email     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   hints     Hint[]
   createdAt DateTime @default(now())
 }
@@ -28,19 +35,21 @@ model Admirer {
 model Hint {
   id           String        @id @default(uuid())
   content      String
-  type         String
+  type         String        @default("text")
   views        Int           @default(0)
+  interactions Int           @default(0)
   admirerId    String
-  admirer      Admirer       @relation(fields: [admirerId], references: [id])
-  interactions Interaction[]
+  admirer      Admirer       @relation(fields: [admirerId], references: [id], onDelete: Cascade)
+  interaction  Interaction[]
   createdAt    DateTime      @default(now())
 }
 
 model Interaction {
-  id        String   @id @default(uuid())
-  question  String
-  answer    String?
-  hintId    String
-  hint      Hint     @relation(fields: [hintId], references: [id])
-  createdAt DateTime @default(now())
+  id         String    @id @default(uuid())
+  content    String
+  answer     String?
+  hintId     String
+  hint       Hint      @relation(fields: [hintId], references: [id], onDelete: Cascade)
+  createdAt  DateTime  @default(now())
+  answeredAt DateTime?
 }
