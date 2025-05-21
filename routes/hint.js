@@ -94,7 +94,7 @@ router.get('/hint/:id', [
 });
 
 // Buscar todas as dicas de um admirador (agora por userId)
-router.get('/hints', authenticateToken, async (req, res) => {
+router.get('/', authenticateToken, async (req, res) => { // Changed from /hints to /
   const userId = req.user.id;
   try {
     const admirer = await prisma.admirer.findFirst({ where: { userId } });

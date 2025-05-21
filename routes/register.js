@@ -5,10 +5,11 @@ const bcrypt = require('bcrypt');
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 const jwt = require('jsonwebtoken');
+const { authLimiter } = require('../middleware/rateLimit');
 const JWT_SECRET = process.env.JWT_SECRET;
 const TOKEN_EXPIRATION = process.env.TOKEN_EXPIRATION || '1h';
 
-router.post('/register', async (req, res) => {
+router.post('/register', authLimiter, async (req, res) => {
   const { email, password, name, birthdate, cpf } = req.body;
 
   if (!email || !password || !name || !birthdate || !cpf) {

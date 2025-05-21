@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
@@ -14,7 +15,9 @@ const register = require('./routes/register');
 const auth = require('./routes/auth');
 const dashboard = require('./routes/dashboard');
 const interaction = require('./routes/interaction');
-const hint = require('./routes/hint');
+const hintRoutes = require('./routes/hint');
+const userRoutes = require('./routes/user');
+const messageRoutes = require('./routes/message'); // Add this line
 const authenticateToken = require('./middleware/authMiddleware');
 
 // Inicialização segura do Prisma
@@ -31,12 +34,12 @@ const app = express();
 // Middlewares de segurança e performance
 app.use(helmet()); // Adiciona headers de segurança
 app.use(compression()); // Comprime as respostas
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '5mb' }));
+app.use(express.urlencoded({ extended: true, limit: '5mb' }));
 
 // Configuração de CORS mais segura
 const corsOptions = {
-  origin: [process.env.FRONTEND_URL, 'http://10.0.0.109:3000'],
+  origin: [process.env.FRONTEND_URL, 'http://192.168.1.91:3000', 'http://localhost:8080', 'http://127.0.0.1:8080'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Accept', 'Authorization']
@@ -45,8 +48,8 @@ app.use(cors(corsOptions));
 
 // Limitador de requisições para prevenir ataques de força bruta
 const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutos
-  max: 100, // limite de 100 requisições por IP
+  windowMs: 1 * 60 * 1000, // 1 minuto para dev
+  max: 500, // limite mais alto para desenvolvimento
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -66,10 +69,12 @@ app.get('/api/protected', authenticateToken, (req, res) => {
 
 // Rotas importadas
 app.use('/api', register);
-app.use('/api', auth);
+app.use('/api/auth', auth); // Rota de autenticação
 app.use('/api', dashboard);
 app.use('/api', interaction);
-app.use('/api', hint);
+app.use('/api/hints', hintRoutes);
+app.use('/api/users', userRoutes);
+app.use('/api/messages', messageRoutes); // Add this line
 
 // Configuração do multer com validações
 const storage = multer.diskStorage({
@@ -114,10 +119,10 @@ app.post('/api/upload', authenticateToken, upload.single('media'), (req, res) =>
     
     // Gera a URL do arquivo usando o IP da máquina, nunca localhost
     // Certifique-se de que SERVER_IP está definido corretamente no .env ou use o IP fixo da sua máquina na rede
-    const serverIp = process.env.SERVER_IP || req.hostname || req.connection.localAddress || '10.0.0.109';
+    const serverIp = process.env.SERVER_IP || req.hostname || req.connection.localAddress || '192.168.1.91';
     const protocol = req.protocol;
     // Força o IP correto se req.hostname for 'localhost'
-    const finalIp = (serverIp === 'localhost' || serverIp === '127.0.0.1') ? '10.0.0.109' : serverIp;
+    const finalIp = (serverIp === 'localhost' || serverIp === '127.0.0.1') ? '192.168.1.91' : serverIp;
     const fileUrl = `${protocol}://${finalIp}:4000/uploads/${req.file.filename}`;
       
     res.json({ url: fileUrl });
@@ -125,6 +130,11 @@ app.post('/api/upload', authenticateToken, upload.single('media'), (req, res) =>
     console.error('Erro ao fazer upload:', error);
     res.status(500).json({ error: 'Erro ao processar upload', details: error.message });
   }
+});
+
+// Rota de saúde para testes automatizados
+app.get('/', (req, res) => {
+  res.status(200).json({ status: 'ok', message: 'API online' });
 });
 
 // Middleware global de tratamento de erros
@@ -136,6 +146,10 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Iniciar o servidor
-const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => console.log(`Servidor backend rodando na porta ${PORT}`));
+// Iniciar o servidor apenas se este arquivo for executado diretamente
+if (require.main === module) {
+  const PORT = process.env.PORT || 4000;
+  app.listen(PORT, () => console.log(`Servidor backend rodando na porta ${PORT}`));
+}
+
+module.exports = app;
